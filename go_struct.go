@@ -276,6 +276,7 @@ func complex2singularName(name string) (friendlyName string) {
 	if l == 0 {
 		return ""
 	}
+
 	//优化列表命名
 	if strings.HasSuffix(name, "List") {
 		friendlyName = name[:l-4]
@@ -283,6 +284,8 @@ func complex2singularName(name string) (friendlyName string) {
 		friendlyName = fmt.Sprintf("%sy", name[:l-3])
 	} else if l > 0 && name[l-1] == 's' {
 		friendlyName = name[:l-1]
+	} else {
+		friendlyName = fmt.Sprintf("%sItem", name) //默认增加Item后缀,作为数组元素结构体名称
 	}
 	return friendlyName
 }
