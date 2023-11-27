@@ -84,6 +84,9 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 				comment = item.Description
 			}
 			typ := item.Type
+			if strings.EqualFold(typ, "object") {
+				typ = "any"
+			}
 			// 根据格式，修改类型
 			switch format {
 			case "int":
@@ -98,7 +101,7 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 			isArray = isArray || strings.ToLower(item.Type) == "array" // 最后一个接受当前的type字段值
 			if isArray {
 				if typ == "array" {
-					typ = "interface{}"
+					typ = "any"
 					if format != "" {
 						typ = format
 					}
