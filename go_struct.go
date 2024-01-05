@@ -9,6 +9,16 @@ import (
 	"github.com/suifengpiao14/lineschema"
 )
 
+func isStructType(name string, lineschemaItems lineschema.LineschemaItems) (ok bool) {
+	for _, item := range lineschemaItems {
+		typ := strings.TrimPrefix(item.Type, "[]")
+		if typ == name {
+			return true
+		}
+	}
+	return false
+}
+
 func NewSturct(l lineschema.Lineschema) (structs Structs) {
 	arraySuffix := "[]"
 	structs = make(Structs, 0)
@@ -17,7 +27,8 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 	rootStruct := &Struct{
 		IsRoot:     true,
 		Name:       rootStructName,
-		Attrs:      make([]*StructAttr, 0),
+		Attrs:      make(StructAttrs, 0),
+		IsTypeName: false,
 		Lineschema: l.String(),
 	}
 	structs.AddIngore(rootStruct)
@@ -25,13 +36,18 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 		if item.Fullname == "" {
 			continue
 		}
-		withRootFullname := strings.Trim(fmt.Sprintf("%s.%s", id, item.Fullname), ".")
-		nameArr := strings.Split(withRootFullname, ".")
+		if item.Fullname == "Parameters" {
+			_ = item.Fullname
+		}
+
+		fullname := item.Fullname
+		fullname = strings.Trim(fmt.Sprintf("%s.%s", id, fullname), ".")
+		nameArr := strings.Split(fullname, ".")
 		nameCount := len(nameArr)
 		for i := 1; i < nameCount; i++ { //i从1开始,0 为root,已处理
 			parentStructName := funcs.ToCamel(strings.Join(nameArr[:i], "_"))
-			parentStruct, _ := structs.Get(parentStructName) // 一定存在
-			if strings.HasPrefix(parentStruct.Type, "[]") {
+			parentStruct, _ := structs.Get(parentStructName) // 一定存在（此处就是占时记录_originBaseName 的原因）
+			if strings.HasPrefix(parentStruct.Type, arraySuffix) {
 				parentStruct, _ = structs.Get(complex2singularName(parentStructName)) //取单数, 一定存在
 			}
 			baseName := nameArr[i]
@@ -39,34 +55,12 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 			isArray := baseName != realBaseName
 			attrName := funcs.ToCamel(realBaseName)
 			if i < nameCount-1 { // 非最后一个,即为上级的attr,又为下级的struct
-				subStructName := funcs.ToCamel(strings.Join(nameArr[:i+1], "_"))
-				attrType := subStructName
-				if isArray {
-					singularName := complex2singularName(attrType)
-					complexStruct := &Struct{
-						IsRoot: false,
-						Name:   attrType,
-						Type:   fmt.Sprintf("[]%s", singularName),
-					}
-					structs.AddIngore(complexStruct)
-					singularStruct := &Struct{
-						IsRoot: false,
-						Name:   singularName,
-					}
-					structs.AddIngore(singularStruct)
-				}
-				attr := StructAttr{
-					Name: attrName,
-					Type: attrType,
-					Tag:  fmt.Sprintf(`json:"%s"`, funcs.ToLowerCamel(attrName)),
-					//Comment: comment,// 符合类型comment 无意义，不增加
-				}
-				parentStruct.AddAttrReplace(attr)
-				subStruct := &Struct{
-					IsRoot: false,
-					Name:   subStructName,
-				}
-				structs.AddIngore(subStruct)
+				makeParentStuct(&structs, parentStruct, l.Items, nameArr, i, isArray, attrName, "")
+				continue // 非最后一个，在此处结束
+			}
+			baseTypeArr := "[]int,[]string,[]object,[]number,[]float"                                   // 排除基本类型数组
+			if strings.HasPrefix(item.Type, arraySuffix) && !strings.Contains(baseTypeArr, item.Type) { // 类型有[] 直接当做结构体如  fullname=Parameters,type=[]Parameter
+				makeParentStuct(&structs, parentStruct, l.Items, nameArr, i, isArray, attrName, item.Type)
 				continue
 			}
 			format := item.Format
@@ -132,22 +126,74 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 		}
 	}
 
+	// 将自定义的类型替换成原始名称，并且将相关属性剔除
+	allAttrs := make(StructAttrs, 0)
+	for _, struc := range structs {
+		allAttrs.Add(struc.Attrs...)
+	}
+
+	for _, struc := range structs {
+		if struc.IsTypeName {
+			oldName := struc.Name
+			struc.Name = struc._originBaseName        // 已经当做其它结构体属性类型的 子结构体，其名字修改会使用原始名称
+			struc._parent.Attrs.RemoveByType(oldName) // 父类属性中移除自动生成的该结构体名称类型对应的属性
+		}
+	}
+
 	return structs
+}
+
+func makeParentStuct(structs *Structs, parentStruct *Struct, lineschemaItems lineschema.LineschemaItems, nameArr []string, i int, isArray bool, attrName string, typ string) {
+	subStructName := funcs.ToCamel(strings.Join(nameArr[:i+1], "_"))
+	attrType := subStructName
+	if isArray {
+		singularName := complex2singularName(attrType)
+		complexStruct := &Struct{
+			IsRoot: false,
+			Name:   attrType,
+			Type:   fmt.Sprintf("[]%s", singularName),
+		}
+		structs.AddIngore(complexStruct)
+		singularStruct := &Struct{
+			IsRoot: false,
+			Name:   singularName,
+		}
+		structs.AddIngore(singularStruct)
+	}
+	attr := StructAttr{
+		Name: attrName,
+		Type: attrType,
+		Tag:  fmt.Sprintf(`json:"%s"`, funcs.ToLowerCamel(attrName)),
+		//Comment: comment,// 符合类型comment 无意义，不增加
+	}
+	parentStruct.AddAttrReplace(attr)
+	subStruct := &Struct{
+		IsRoot:          false,
+		_originBaseName: nameArr[i],
+		IsTypeName:      isStructType(nameArr[i], lineschemaItems),
+		Name:            subStructName,
+		Type:            typ,
+		_parent:         parentStruct,
+	}
+	structs.AddIngore(subStruct)
 }
 
 // jsonschemaline 生成go 结构体工具
 type Struct struct {
-	IsRoot     bool
-	Name       string
-	Lineschema string
-	Attrs      []*StructAttr
-	Type       string
+	IsRoot          bool
+	Name            string // 这个名称已经增加了命名空间如 in,out 等
+	Lineschema      string
+	Attrs           StructAttrs
+	IsTypeName      bool   // 当前结构体的名称是否为其它结构体字段类型,标记为是时，其名称可以使用originBaseName替换
+	_originBaseName string // lineschema 上原始fullname字段最后一个
+	Type            string
+	_parent         *Struct
 }
 
 // AddAttrIgnore 已经存在则跳过
 func (s *Struct) AddAttrIgnore(attrs ...StructAttr) {
 	if len(s.Attrs) == 0 {
-		s.Attrs = make([]*StructAttr, 0)
+		s.Attrs = make(StructAttrs, 0)
 	}
 	for _, attr := range attrs {
 		if _, exists := s.GetAttr(attr.Name); exists {
@@ -160,7 +206,7 @@ func (s *Struct) AddAttrIgnore(attrs ...StructAttr) {
 // AddAttrReplace 增加或者替换
 func (s *Struct) AddAttrReplace(attrs ...StructAttr) {
 	if len(s.Attrs) == 0 {
-		s.Attrs = make([]*StructAttr, 0)
+		s.Attrs = make(StructAttrs, 0)
 	}
 	for _, attr := range attrs {
 		if old, exists := s.GetAttr(attr.Name); exists {
@@ -184,6 +230,27 @@ type StructAttr struct {
 	Type    string
 	Tag     string
 	Comment string
+}
+
+type StructAttrs []*StructAttr
+
+func (attrs *StructAttrs) Add(ats ...*StructAttr) {
+	if *attrs == nil {
+		*attrs = make(StructAttrs, 0)
+	}
+	*attrs = append(*attrs, ats...)
+}
+
+//RemoveByType 移除指定类型的属性
+func (attrs *StructAttrs) RemoveByType(typeName string) {
+	tmp := make(StructAttrs, 0)
+	for _, attr := range *attrs {
+		if attr.Type == typeName || attr.Type == fmt.Sprintf("[]%s", typeName) {
+			continue
+		}
+		tmp = append(tmp, attr)
+	}
+	*attrs = tmp
 }
 
 type Structs []*Struct
@@ -230,7 +297,7 @@ func (s Structs) Copy() (newStructs Structs) {
 	newStructs = make(Structs, 0)
 	for _, struc := range s {
 		newStruct := *struc
-		newStruct.Attrs = make([]*StructAttr, 0)
+		newStruct.Attrs = make(StructAttrs, 0)
 		for _, attr := range struc.Attrs {
 			newAttr := *attr
 			newStruct.Attrs = append(newStruct.Attrs, &newAttr)
@@ -244,11 +311,14 @@ func (s *Structs) AddNameprefix(nameprefix string) {
 	if len(*s) == 0 {
 		return
 	}
-	allAttrs := make([]*StructAttr, 0)
+	allAttrs := make(StructAttrs, 0)
 	for _, struc := range *s {
-		allAttrs = append(allAttrs, struc.Attrs...)
+		allAttrs.Add(struc.Attrs...)
 	}
 	for _, struc := range *s {
+		if struc.IsTypeName {
+			continue // 当前结构体是值类型，并且已经作为其他结构体属性时，不修改名称
+		}
 		baseName := struc.Name
 		struc.Name = funcs.ToCamel(fmt.Sprintf("%s_%s", nameprefix, baseName))
 		if struc.Type != "" {
