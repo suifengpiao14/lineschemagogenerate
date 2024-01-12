@@ -4,7 +4,7 @@ go 1.21.0
 
 require (
 	github.com/suifengpiao14/funcs v0.0.17
-	github.com/suifengpiao14/lineschema v0.0.25
+	github.com/suifengpiao14/lineschema v0.0.26
 )
 
 require (
