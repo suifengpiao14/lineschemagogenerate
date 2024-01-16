@@ -36,10 +36,6 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 		if item.Fullname == "" {
 			continue
 		}
-		if item.Fullname == "Parameters" {
-			_ = item.Fullname
-		}
-
 		fullname := item.Fullname
 		fullname = strings.Trim(fmt.Sprintf("%s.%s", id, fullname), ".")
 		nameArr := strings.Split(fullname, ".")
