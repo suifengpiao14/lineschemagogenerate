@@ -33,16 +33,22 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 	}
 	structs.AddIngore(rootStruct)
 	for _, item := range l.Items {
-		if item.Fullname == "" {
+		if item.Fullname == "" && item.Type == "" {
 			continue
 		}
 		fullname := item.Fullname
 		fullname = strings.Trim(fmt.Sprintf("%s.%s", id, fullname), ".")
+		if item.Fullname == "" {
+			fullname = "." // fullname为空,追加.
+		}
 		nameArr := strings.Split(fullname, ".")
 		nameCount := len(nameArr)
 		for i := 1; i < nameCount; i++ { //i从1开始,0 为root,已处理
 			parentStructName := funcs.ToCamel(strings.Join(nameArr[:i], "_"))
-			parentStruct, _ := structs.Get(parentStructName) // 一定存在（此处就是占时记录_originBaseName 的原因）
+			parentStruct, ok := structs.Get(parentStructName) // 一定存在（此处就是占时记录_originBaseName 的原因）
+			if !ok {
+				parentStruct = rootStruct
+			}
 			if strings.HasPrefix(parentStruct.Type, arraySuffix) {
 				parentStruct, _ = structs.Get(complex2singularName(parentStructName)) //取单数, 一定存在
 			}
@@ -84,7 +90,11 @@ func NewSturct(l lineschema.Lineschema) (structs Structs) {
 			case "bool", "boolean":
 				typ = "bool"
 			}
-			tag := fmt.Sprintf(`json:"%s"`, funcs.ToLowerCamel(attrName))
+			tagName := funcs.ToLowerCamel(attrName)
+			if tagName == "" {
+				tagName = "-"
+			}
+			tag := fmt.Sprintf(`json:"%s"`, tagName)
 			if !item.Required { //当作入参时,非必填字断,使用引用
 				typ = fmt.Sprintf("*%s", typ)
 			}
@@ -237,7 +247,7 @@ func (attrs *StructAttrs) Add(ats ...*StructAttr) {
 	*attrs = append(*attrs, ats...)
 }
 
-//RemoveByType 移除指定类型的属性
+// RemoveByType 移除指定类型的属性
 func (attrs *StructAttrs) RemoveByType(typeName string) {
 	tmp := make(StructAttrs, 0)
 	for _, attr := range *attrs {
