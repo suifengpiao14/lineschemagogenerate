@@ -5,7 +5,7 @@ go 1.21.0
 require (
 	github.com/stretchr/testify v1.8.4
 	github.com/suifengpiao14/funcs v0.0.17
-	github.com/suifengpiao14/lineschema v0.0.26
+	github.com/suifengpiao14/lineschema v0.0.33
 )
 
 require (
